@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Trip Expenses</title>
+<style>
+  :root {
+    --bg: #f7f5f2; --card: #ffffff; --text: #1c1b19; --text-dim: #6b6560;
+    --accent: #b5502e; --line: #e8e3dd; --pos: #2d6a4f; --neg: #b5502e;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16140f; --card: #221f1a; --text: #f2ede6; --text-dim: #a89e92;
+      --accent: #e08355; --line: #332e27; --pos: #7cc99e; --neg: #e08355;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16140f; --card: #221f1a; --text: #f2ede6; --text-dim: #a89e92;
+    --accent: #e08355; --line: #332e27; --pos: #7cc99e; --neg: #e08355;
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0 auto; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 560px; padding: 16px 16px 40px;
+  }
+  h1 { font-size: 1.4rem; margin: 8px 0 2px; }
+  .sub { color: var(--text-dim); font-size: 0.9rem; margin-bottom: 18px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 1rem; margin: 0 0 12px; }
+  label { display: block; font-size: 0.82rem; color: var(--text-dim); margin: 10px 0 4px; }
+  input[type=text], input[type=number], select {
+    width: 100%; padding: 10px 11px; border-radius: 9px; border: 1px solid var(--line);
+    background: var(--bg); color: var(--text); font-size: 1rem;
+  }
+  .split-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+  .chip { padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); font-size: 0.88rem; cursor: pointer; user-select: none; background: var(--bg); }
+  .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button { border: none; border-radius: 9px; padding: 11px 16px; font-size: 0.95rem; font-weight: 600; cursor: pointer; }
+  .btn-primary { background: var(--accent); color: #fff; width: 100%; margin-top: 14px; }
+  .btn-primary:disabled { opacity: 0.5; }
+  .expense { display: flex; justify-content: space-between; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--line); gap: 8px; }
+  .expense:last-child { border-bottom: none; }
+  .expense .meta { font-size: 0.78rem; color: var(--text-dim); margin-top: 2px; }
+  .expense .amt { font-weight: 700; white-space: nowrap; }
+  .del { background: none; color: var(--text-dim); font-size: 0.78rem; padding: 4px 6px; text-decoration: underline; }
+  .balance-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .balance-row:last-child { border-bottom: none; }
+  .settle-line { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 0.95rem; }
+  .settle-line:last-child { border-bottom: none; }
+  .empty { color: var(--text-dim); font-size: 0.9rem; text-align: center; padding: 10px 0; }
+  .status { font-size: 0.78rem; color: var(--text-dim); margin-top: 6px; text-align: center; }
+</style>
+</head>
+<body>
+  <h1>🧾 Trip Expenses</h1>
+  <div class="sub">Laurie, Michael, Matt &amp; Ben — log spend, split it, settle up.</div>
+
+  <div class="card">
+    <h2>Add an expense</h2>
+    <label>What was it?</label>
+    <input type="text" id="desc" placeholder="e.g. Taxi to hotel">
+    <label>Amount (£)</label>
+    <input type="number" id="amount" placeholder="0.00" step="0.01" min="0">
+    <label>Who paid?</label>
+    <select id="payer"></select>
+    <label>Split between</label>
+    <div class="split-row" id="splitRow"></div>
+    <button class="btn-primary" id="addBtn">Add expense</button>
+    <div class="status" id="status">Connecting…</div>
+  </div>
+
+  <div class="card">
+    <h2>Expenses</h2>
+    <div id="expenseList"><div class="empty">No expenses yet</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Balances</h2>
+    <div id="balances"><div class="empty">Add an expense to see balances</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Who owes who</h2>
+    <div id="settlement"><div class="empty">Nothing to settle yet</div></div>
+  </div>
+
+<!-- Firebase (compat SDK, CDN, no build step needed) -->
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script>
+// ====== FILL THIS IN with your own Firebase project's config ======
+// Firebase console > Project settings > General > Your apps > SDK setup and configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyB0FmI22-qyJGFMfJnATt-ejWyOkWm2WRY",
+  authDomain: "expense-splitter-6b118.firebaseapp.com",
+  projectId: "expense-splitter-6b118",
+  storageBucket: "expense-splitter-6b118.firebasestorage.app",
+  messagingSenderId: "442132567705",
+  appId: "1:442132567705:web:2bd77fc8b21357280a0a08"
+};
+// =====================================================================
+
+const PEOPLE = ["Ben", "Laurie", "Michael", "Matt"];
+let expenses = [];
+let colRef = null;
+
+const payerSel = document.getElementById('payer');
+const splitRow = document.getElementById('splitRow');
+const selectedSplit = new Set(PEOPLE);
+const statusEl = document.getElementById('status');
+
+PEOPLE.forEach(p => {
+  const o = document.createElement('option');
+  o.value = p; o.textContent = p;
+  payerSel.appendChild(o);
+});
+
+PEOPLE.forEach(p => {
+  const chip = document.createElement('div');
+  chip.className = 'chip active';
+  chip.textContent = p;
+  chip.addEventListener('click', () => {
+    if (selectedSplit.has(p)) {
+      if (selectedSplit.size > 1) { selectedSplit.delete(p); chip.classList.remove('active'); }
+    } else {
+      selectedSplit.add(p); chip.classList.add('active');
+    }
+  });
+  splitRow.appendChild(chip);
+});
+
+function fmt(n) {
+  const sign = n < 0 ? '-' : '';
+  return sign + '£' + Math.abs(n).toFixed(2);
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function render() {
+  const list = document.getElementById('expenseList');
+  if (!expenses.length) {
+    list.innerHTML = '<div class="empty">No expenses yet</div>';
+  } else {
+    const sorted = [...expenses].sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
+    list.innerHTML = sorted.map(e => `
+      <div class="expense">
+        <div>
+          <div>${escapeHtml(e.description || 'Expense')}</div>
+          <div class="meta">${e.payer} paid · split ${e.splitAmong.join(', ')}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="amt">${fmt(e.amount)}</div>
+          <button class="del" data-id="${e.id}">remove</button>
+        </div>
+      </div>
+    `).join('');
+    list.querySelectorAll('.del').forEach(btn => {
+      btn.addEventListener('click', () => removeExpense(btn.dataset.id));
+    });
+  }
+
+  const balances = {};
+  PEOPLE.forEach(p => balances[p] = 0);
+  expenses.forEach(e => {
+    const share = e.amount / e.splitAmong.length;
+    balances[e.payer] = (balances[e.payer] || 0) + e.amount;
+    e.splitAmong.forEach(p => { balances[p] = (balances[p] || 0) - share; });
+  });
+
+  const balDiv = document.getElementById('balances');
+  if (!expenses.length) {
+    balDiv.innerHTML = '<div class="empty">Add an expense to see balances</div>';
+  } else {
+    balDiv.innerHTML = PEOPLE.map(p => {
+      const v = balances[p];
+      const color = v > 0.005 ? 'var(--pos)' : (v < -0.005 ? 'var(--neg)' : 'var(--text-dim)');
+      const label = v > 0.005 ? 'is owed' : (v < -0.005 ? 'owes' : 'is settled');
+      return `<div class="balance-row"><span>${p}</span><span style="color:${color}">${label} ${fmt(Math.abs(v))}</span></div>`;
+    }).join('');
+  }
+
+  const settleDiv = document.getElementById('settlement');
+  const debtors = [], creditors = [];
+  PEOPLE.forEach(p => {
+    const v = Math.round(balances[p] * 100) / 100;
+    if (v < -0.005) debtors.push({p, v: -v});
+    else if (v > 0.005) creditors.push({p, v});
+  });
+  const txns = [];
+  let di = 0, ci = 0;
+  debtors.sort((a,b)=>b.v-a.v); creditors.sort((a,b)=>b.v-a.v);
+  while (di < debtors.length && ci < creditors.length) {
+    const d = debtors[di], c = creditors[ci];
+    const amt = Math.min(d.v, c.v);
+    if (amt > 0.005) txns.push({from: d.p, to: c.p, amt});
+    d.v -= amt; c.v -= amt;
+    if (d.v <= 0.005) di++;
+    if (c.v <= 0.005) ci++;
+  }
+  settleDiv.innerHTML = txns.length
+    ? txns.map(t => `<div class="settle-line"><strong>${t.from}</strong> owes <strong>${t.to}</strong> ${fmt(t.amt)}</div>`).join('')
+    : '<div class="empty">Everyone is settled up</div>';
+}
+
+async function removeExpense(id) {
+  if (!colRef) return;
+  try { await colRef.doc(id).delete(); }
+  catch (err) { statusEl.textContent = 'Could not remove — check your connection.'; }
+}
+
+document.getElementById('addBtn').addEventListener('click', async () => {
+  const desc = document.getElementById('desc').value.trim();
+  const amount = parseFloat(document.getElementById('amount').value);
+  const payer = payerSel.value;
+  const split = PEOPLE.filter(p => selectedSplit.has(p));
+
+  if (!amount || amount <= 0) { statusEl.textContent = 'Enter a valid amount.'; return; }
+  if (!split.length) { statusEl.textContent = 'Pick at least one person to split with.'; return; }
+  if (!colRef) { statusEl.textContent = 'Not connected to Firebase yet.'; return; }
+
+  try {
+    await colRef.add({ description: desc, amount, payer, splitAmong: split, createdAt: Date.now() });
+    document.getElementById('desc').value = '';
+    document.getElementById('amount').value = '';
+    statusEl.textContent = '';
+  } catch (err) {
+    statusEl.textContent = 'Could not save — check your Firebase config and rules.';
+  }
+});
+
+function init() {
+  try {
+    const app = firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    colRef = db.collection('expenses');
+    colRef.onSnapshot(
+      (snap) => {
+        expenses = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        statusEl.textContent = '';
+        render();
+      },
+      (err) => {
+        statusEl.textContent = 'Connection error — check your Firebase config and Firestore rules.';
+        console.error(err);
+      }
+    );
+  } catch (err) {
+    statusEl.textContent = 'Firebase not configured yet — edit firebaseConfig in the code.';
+    console.error(err);
+    render();
+  }
+}
+
+init();
+</script>
+</body>
+</html>
